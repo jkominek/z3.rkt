@@ -78,36 +78,42 @@
 
 (define _z3-error-handler (_fun #:keep #t _int -> _void))
 
-;; XXX combine these two
-(define-syntax defz3
-  (syntax-rules (:)
-    [(_ name : type ...)
-     (begin
-       (define (name . args)
-         (apply (get-ffi-obj (regexp-replaces 'name '((#rx"-" "_")
-                                                      (#rx"^" "Z3_")
-                                                      (#rx"!$" "")))
-                             libz3 (_fun type ...)) args))
-       (provide name))]))
-(define-syntax defz3-wrapped
-  (syntax-rules (:)
+(define-for-syntax (convert-name stx n)
+  (datum->syntax stx
+		 (string->symbol
+		  (regexp-replaces
+		   (symbol->string (syntax->datum n))
+		   '((#rx"-" "_")
+		     [#rx"(.*)$" "Z3_\\1"]
+		     (#rx"!$" ""))))))
+
+(define-syntax (defz3 stx)
+  (syntax-case stx (:)
     [(_ name wrapper : type ...)
-     (begin
-       (define name
-         (wrapper
-          (lambda args
-            (apply (get-ffi-obj (regexp-replaces 'name '((#rx"-" "_")
-                                                         (#rx"^" "Z3_")
-                                                         (#rx"!$" "")))
-                                libz3 (_fun type ...)) args))))
-       (provide name))]))
+     (with-syntax
+      ([libsym (convert-name stx #'name)])
+      #'(begin
+	  (define name
+	    (procedure-rename
+	     (wrapper (get-ffi-obj 'libsym libz3 (_fun type ...)))
+	     'name))
+	  (provide name)))]
+    [(_ name : type ...)
+     (with-syntax
+      ([libsym (convert-name stx #'name)])
+      #'(begin
+	  (define name
+            (procedure-rename
+             (get-ffi-obj 'libsym libz3 (_fun type ...))
+             'name))
+	  (provide name)))]))
 
 ;; Deallocators
 (defz3 del-config : _z3-config -> _void)
 (defz3 del-context : _z3-context -> _void)
 (defz3 del-model : _z3-context _z3-model -> _void)
 
-(defz3-wrapped mk-config (allocator del-config) : -> _z3-config)
+(defz3 mk-config (allocator del-config) : -> _z3-config)
 (defz3 set-param-value! : _z3-config _string _string -> _void)
 
 (define (keyword-arg->_z3-param kw kw-arg)
@@ -122,7 +128,7 @@
   (values kw-str kw-arg-str))
 (provide keyword-arg->_z3-param)
                                                                          
-(defz3-wrapped mk-context (allocator del-context) : _z3-config -> _z3-context)
+(defz3 mk-context (allocator del-context) : _z3-config -> _z3-context)
 
 (defz3 set-logic : _z3-context _string -> _bool)
 
